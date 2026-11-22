@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Rheum Revise · SCE Question Bank</title>
+<meta name="theme-color" content="#2F6F62">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+
+
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="app">
+
+  <!-- ===== TOP BAR ===== -->
+  <header class="topbar">
+    <button id="btnHome" class="iconbtn" aria-label="Home" title="Home">
+      <svg viewBox="0 0 24 24" width="20" height="20"><path d="M3 11.5 12 4l9 7.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M5.5 10v9.5h13V10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+    <div class="brand">
+      <span class="brand-mark">Rh</span>
+      <span class="brand-name">Rheum Revise</span>
+    </div>
+    <button id="btnTheme" class="iconbtn" aria-label="Toggle theme" title="Light / dark">
+      <svg id="themeIcon" viewBox="0 0 24 24" width="20" height="20"><path d="M12 3v2M12 19v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M3 12h2M19 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="12" r="4.2" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+    </button>
+  </header>
+
+  <main id="view"></main>
+
+</div>
+
+<template id="tpl-home">
+  <section class="screen home">
+    <div class="resume-band" id="resumeBand" hidden>
+      <div class="resume-text">
+        <span class="resume-label">Continue where you left off</span>
+        <span class="resume-detail" id="resumeDetail"></span>
+      </div>
+      <button class="btn btn-ghost-on-accent" id="btnResume">Resume</button>
+    </div>
+
+    <div class="stats-strip">
+      <div class="stat">
+        <span class="stat-num" id="statAnswered">0</span>
+        <span class="stat-label">Answered</span>
+      </div>
+      <div class="stat">
+        <span class="stat-num" id="statAccuracy">—</span>
+        <span class="stat-label">Accuracy</span>
+      </div>
+      <div class="stat">
+        <span class="stat-num" id="statFlagged">0</span>
+        <span class="stat-label">Flagged</span>
+      </div>
+    </div>
+
+    <h1 class="section-title">Choose how to revise</h1>
+
+    <div class="mode-grid">
+      <button class="mode-card" data-mode="random">
+        <span class="mode-glyph">⟲</span>
+        <span class="mode-name">Random practice</span>
+        <span class="mode-desc">One question at a time, instant feedback, any topic.</span>
+      </button>
+      <button class="mode-card" data-mode="mock">
+        <span class="mode-glyph">⏱</span>
+        <span class="mode-name">Mock exam</span>
+        <span class="mode-desc">Timed block, no feedback until you finish — like the real paper.</span>
+      </button>
+      <button class="mode-card" data-mode="category">
+        <span class="mode-glyph">◈</span>
+        <span class="mode-name">By disease / category</span>
+        <span class="mode-desc">Drill one condition, or a mix, until it's solid.</span>
+      </button>
+      <button class="mode-card" data-mode="review">
+        <span class="mode-glyph">⚑</span>
+        <span class="mode-name">Review flagged &amp; missed</span>
+        <span class="mode-desc">Revisit the ones you marked or got wrong.</span>
+      </button>
+    </div>
+
+    <h2 class="section-title small">Progress by category</h2>
+    <div id="categoryBars" class="category-bars"></div>
+
+    <button id="btnReset" class="btn-text-muted">Reset all progress</button>
+  </section>
+</template>
+
+<template id="tpl-category-picker">
+  <section class="screen picker">
+    <button class="back-link" data-back>&larr; Back</button>
+    <h1 class="section-title">Pick categories</h1>
+    <p class="hint">Select one or more. Leave all unselected to use every category.</p>
+    <div id="catList" class="cat-list"></div>
+    <button id="btnStartCategory" class="btn btn-primary btn-block">Start session</button>
+  </section>
+</template>
+
+<template id="tpl-mock-setup">
+  <section class="screen picker">
+    <button class="back-link" data-back>&larr; Back</button>
+    <h1 class="section-title">Set up your mock</h1>
+    <p class="hint">Standard SCE pacing is about 1.8 minutes per question.</p>
+    <div class="choice-row" id="mockLenRow">
+      <button class="choice-pill" data-len="25">25 questions</button>
+      <button class="choice-pill" data-len="50">50 questions</button>
+      <button class="choice-pill" data-len="100">100 questions</button>
+    </div>
+    <div class="toggle-row">
+      <label class="switch-label">
+        <input type="checkbox" id="mockTimedToggle" checked>
+        <span>Timed</span>
+      </label>
+    </div>
+    <button id="btnStartMock" class="btn btn-primary btn-block">Begin mock exam</button>
+  </section>
+</template>
+
+<template id="tpl-quiz">
+  <section class="screen quiz">
+    <div class="quiz-head">
+      <button class="back-link" data-back>&larr; Exit</button>
+      <div class="quiz-progress">
+        <span id="quizPos">1 / 1</span>
+        <div class="progress-track"><div class="progress-fill" id="quizProgressFill"></div></div>
+      </div>
+      <div id="quizTimer" class="quiz-timer" hidden>—:—</div>
+    </div>
+
+    <div class="qcard">
+      <div class="qcard-top">
+        <span class="qcat" id="qCategory">Category</span>
+        <button class="flagbtn" id="btnFlag" aria-label="Flag question" title="Flag for review">
+          <svg viewBox="0 0 24 24" width="18" height="18"><path d="M5 3v18M5 4h11l-2.5 3.5L16 11H5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+      <p class="qstem" id="qStem"></p>
+      <div class="options" id="qOptions"></div>
+    </div>
+
+    <div class="qfeedback" id="qFeedback" hidden>
+      <div class="qfeedback-verdict" id="qVerdict"></div>
+      <p class="qexplain" id="qExplain"></p>
+    </div>
+
+    <div class="quiz-actions">
+      <button class="btn btn-primary" id="btnNext" hidden>Next question</button>
+    </div>
+  </section>
+</template>
+
+<template id="tpl-summary">
+  <section class="screen summary">
+    <h1 class="section-title">Session complete</h1>
+    <div class="summary-score">
+      <span id="summaryPct">0%</span>
+      <span class="summary-sub" id="summaryFraction">0 of 0 correct</span>
+    </div>
+    <div id="summaryByCat" class="summary-cats"></div>
+    <div class="summary-actions">
+      <button class="btn btn-primary" id="btnReviewSession">Review these questions</button>
+      <button class="btn btn-secondary" id="btnBackHome">Back to home</button>
+    </div>
+  </section>
+</template>
+
+<script src="data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,4 +1,4 @@
-name: Build Rheum Revise Android APK
+name: Build Rheum Revise Android APK (Clean Dependencies)
 
 on:
   push:
@@ -30,7 +30,27 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Preserve only the original web app before removing old Android build inputs.
+          # Stale app/libs JARs, Kotlin dependencies, and native configurations must not survive.
+          mkdir -p /tmp/rheum-web-backup
+          for file in index.html app.js data.js style.css sw.js manifest.json; do
+            if [ -s "$file" ]; then
+              cp -f "$file" "/tmp/rheum-web-backup/$file"
+            elif [ -s "app/src/main/assets/$file" ]; then
+              cp -f "app/src/main/assets/$file" "/tmp/rheum-web-backup/$file"
+            fi
+          done
+          if [ -d icons ]; then cp -r icons /tmp/rheum-web-backup/icons;
+          elif [ -d app/src/main/assets/icons ]; then cp -r app/src/main/assets/icons /tmp/rheum-web-backup/icons; fi
+          if [ -f AndroidManifest.xml ]; then cp AndroidManifest.xml /tmp/rheum-manifest.xml;
+          elif [ -f app/src/main/AndroidManifest.xml ]; then cp app/src/main/AndroidManifest.xml /tmp/rheum-manifest.xml; fi
+          # Remove *all* old app inputs. This is confined to the temporary build runner;
+          # it does NOT delete or modify files in the GitHub repository.
+          rm -rf app
           mkdir -p app/src/main/assets app/src/main/java/com/rheumrevise/app app/src/main/res
+          cp -a /tmp/rheum-web-backup/. app/src/main/assets/
+          test -s /tmp/rheum-manifest.xml || { echo 'ERROR: Missing AndroidManifest.xml'; exit 1; }
+          cp /tmp/rheum-manifest.xml app/src/main/AndroidManifest.xml
 
           # Recover files from an iPhone upload that flattened the ZIP hierarchy.
           for file in index.html app.js data.js style.css sw.js manifest.json; do
@@ -95,13 +115,99 @@ jobs:
                   targetCompatibility JavaVersion.VERSION_17
               }
           }
-          dependencies {
-              implementation 'androidx.webkit:webkit:1.12.1'
-              implementation 'androidx.activity:activity:1.9.3'
-          }
+          // Intentionally no AndroidX dependencies. The launcher is Java/Android SDK only.
           EOF
+          # Replace only the native launcher; keep the complete original web app intact.
+          cat > app/src/main/java/com/rheumrevise/app/MainActivity.java <<'JAVA'
+          package com.rheumrevise.app;
+          
+          import android.annotation.SuppressLint;
+          import android.app.Activity;
+          import android.os.Bundle;
+          import android.webkit.WebChromeClient;
+          import android.webkit.WebResourceRequest;
+          import android.webkit.WebResourceResponse;
+          import android.webkit.WebSettings;
+          import android.webkit.WebView;
+          import android.webkit.WebViewClient;
+          import java.io.InputStream;
+          import java.io.IOException;
+          import java.net.URLConnection;
+          import java.util.Locale;
+          
+          /** Offline app wrapper: no AndroidX or Kotlin runtime is required. */
+          public final class MainActivity extends Activity {
+              private WebView webView;
+              private static final String HOST = "appassets.androidplatform.net";
+              private static final String START = "https://" + HOST + "/assets/index.html";
+          
+              @SuppressLint("SetJavaScriptEnabled")
+              @Override public void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+                  getWindow().setStatusBarColor(0xFF173F38);
+                  getWindow().setNavigationBarColor(0xFF173F38);
+                  webView = new WebView(this);
+                  setContentView(webView);
+                  WebSettings settings = webView.getSettings();
+                  settings.setJavaScriptEnabled(true);
+                  settings.setDomStorageEnabled(true);
+                  settings.setAllowFileAccess(false);
+                  settings.setAllowContentAccess(false);
+                  WebView.setWebContentsDebuggingEnabled(false);
+                  webView.setWebChromeClient(new WebChromeClient());
+                  webView.setWebViewClient(new WebViewClient() {
+                      @Override public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+                          android.net.Uri uri = request.getUrl();
+                          if (!"https".equals(uri.getScheme()) || !HOST.equals(uri.getHost())) return null;
+                          String path = uri.getEncodedPath();
+                          if (path == null || !path.startsWith("/assets/")) return forbidden();
+                          String relative = android.net.Uri.decode(path.substring("/assets/".length()));
+                          if (relative.startsWith("/") || relative.contains("..") || relative.contains("\\") || relative.isEmpty()) return forbidden();
+                          try {
+                              InputStream stream = getAssets().open(relative);
+                              String type = URLConnection.guessContentTypeFromName(relative);
+                              if (relative.endsWith(".js")) type = "application/javascript";
+                              else if (relative.endsWith(".json")) type = "application/json";
+                              else if (relative.endsWith(".css")) type = "text/css";
+                              else if (relative.endsWith(".html")) type = "text/html";
+                              else if (relative.endsWith(".svg")) type = "image/svg+xml";
+                              if (type == null) type = "application/octet-stream";
+                              return new WebResourceResponse(type, "UTF-8", stream);
+                          } catch (IOException ex) {
+                              return forbidden();
+                          }
+                      }
+                      @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                          android.net.Uri uri = request.getUrl();
+                          return !"https".equals(uri.getScheme()) || !HOST.equals(uri.getHost());
+                      }
+                      private WebResourceResponse forbidden() {
+                          return new WebResourceResponse("text/plain", "UTF-8", new java.io.ByteArrayInputStream(new byte[0]));
+                      }
+                  });
+                  if (savedInstanceState != null) webView.restoreState(savedInstanceState);
+                  else webView.loadUrl(START);
+              }
+              @Override public void onBackPressed() {
+                  if (webView != null && webView.canGoBack()) webView.goBack();
+                  else super.onBackPressed();
+              }
+              @Override protected void onSaveInstanceState(Bundle state) {
+                  if (webView != null) webView.saveState(state);
+                  super.onSaveInstanceState(state);
+              }
+              @Override protected void onDestroy() {
+                  if (webView != null) { webView.destroy(); webView = null; }
+                  super.onDestroy();
+              }
+          }
+          JAVA
           echo "Question data size:" && wc -c app/src/main/assets/data.js
-          echo "Android sources prepared."
+          echo "Verify no stale JAR or AAR files are included:"
+          if find app -type f \( -name '*.jar' -o -name '*.aar' \) | grep .; then
+            echo 'ERROR: Unexpected JAR/AAR in clean app tree'; exit 1
+          fi
+          echo "Android sources prepared without third-party dependencies."
 
       - name: Install required Android SDK packages
         shell: bash
@@ -116,8 +222,18 @@ jobs:
           yes | "$SDKMANAGER" --licenses > /dev/null || true
           "$SDKMANAGER" --install 'platforms;android-35' 'build-tools;35.0.0'
 
+      - name: Verify runtime dependencies are clean
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle --no-daemon :app:dependencies --configuration debugRuntimeClasspath | tee /tmp/rheum-dependencies.txt
+          if grep -E 'org\.jetbrains\.kotlin:kotlin-stdlib|kotlin-stdlib-jdk[78]' /tmp/rheum-dependencies.txt; then
+            echo 'ERROR: Kotlin libraries still present in a supposedly dependency-free WebView project.'
+            exit 1
+          fi
+
       - name: Compile APK
-        run: gradle --no-daemon --stacktrace :app:assembleDebug
+        run: gradle --no-daemon :app:assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4

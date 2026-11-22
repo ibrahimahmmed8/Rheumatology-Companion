@@ -3,7 +3,8 @@ name: Build Android APK
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
   workflow_dispatch:
 
 jobs:
@@ -20,15 +21,18 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.7'
 
-      - name: Build debug APK
+      - name: Check Android SDK
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          test -d "$ANDROID_HOME"
+          ls "$ANDROID_HOME"
+
+      - name: Build Android APK
         run: gradle assembleDebug --stacktrace
 
       - name: Upload APK
@@ -36,3 +40,4 @@ jobs:
         with:
           name: RheumRevise-Android-APK
           path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
